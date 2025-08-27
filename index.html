@@ -8,7 +8,8 @@
   .card{border:1px solid #ddd; border-radius:16px; padding:16px; margin:16px 0; box-shadow:0 2px 10px rgba(0,0,0,.04)}
   button{font-size:18px; padding:12px 16px; border-radius:12px; border:0; cursor:not-allowed; opacity:.5}
   button.active{background:#2563eb; color:#fff; cursor:pointer; opacity:1}
-  .ok{color:#16a34a} .bad{color:#dc2626}
+  .ok{color:#16a34a} 
+  .bad{color:#dc2626}
   small{color:#555}
   ul{padding-left:1rem}
 </style>
@@ -31,7 +32,8 @@
 </div>
 
 <script>
-  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwWwiCoN_DWW21_LP4sV5eCQeOMJ4xGMRV-Zgwg2CMGNZ6ipE1P-Hox7YZf0p4PmSfTpA/exec";
+  // あなたのGASデプロイURLを指定
+  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbzIip6DxyRSUONCNf1GxXMCvszCbcaMdJTu4v57qHvJadVozfghisZ8EtQePu68qe-mPw/exec";
 
   const statusEl = document.getElementById('status');
   const debugEl  = document.getElementById('debug');
@@ -114,7 +116,9 @@
 
       const {latitude: lat, longitude: lng} = pos.coords;
 
-      const res = await fetch(GAS_ENDPOINT, {
+      const url = GAS_ENDPOINT + '?ua=' + encodeURIComponent(navigator.userAgent);
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ type:'checkin', lat, lng, ts: Date.now() })
