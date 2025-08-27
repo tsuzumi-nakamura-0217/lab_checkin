@@ -101,7 +101,7 @@
       (json.latest || []).forEach(r=>{
         const c = r.pt>0?'ok':(r.pt<0?'bad':'');
         const li = document.createElement('li');
-        li.innerHTML = `${r.date} ${r.time} <b class="${c}">${fmt(r.pt)}</b> <small>${r.note||''}</small>`;
+        li.innerHTML = `${r.date} ${r.time} <b class="${c}">${fmt(r.pt)}</b>`;
         latestEl.appendChild(li);
       });
     } catch(e){
