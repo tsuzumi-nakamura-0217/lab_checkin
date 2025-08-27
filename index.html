@@ -32,8 +32,8 @@
 </div>
 
 <script>
-  // あなたのGASデプロイURLを指定
-  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbzIip6DxyRSUONCNf1GxXMCvszCbcaMdJTu4v57qHvJadVozfghisZ8EtQePu68qe-mPw/exec";
+  // あなたのGASデプロイURLを指定（最新デプロイに更新！）
+  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxOcYUYltXKIn8prlyNKT_Fj5tDGnoY5QLESuZxRXgxVXZsbIChIrBQSzj2AdsBZpOwDQ/exec";
 
   const statusEl = document.getElementById('status');
   const debugEl  = document.getElementById('debug');
@@ -77,8 +77,14 @@
     try {
       const url = GAS_ENDPOINT + '?mode=stats&_=' + Date.now();
       const res = await fetch(url);
-      if(!res.ok) throw new Error('HTTP ' + res.status);
-      const json = await res.json();
+      const text = await res.text(); // まず text で受け取って可視化
+      if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0,200)}`);
+      let json;
+      try{
+        json = JSON.parse(text);
+      }catch(parseErr){
+        throw new Error('非JSON応答（ログイン/HTMLの可能性）: ' + text.slice(0,200));
+      }
       if(!json.ok) throw new Error('bad response');
 
       const cls = (n)=> n>0?'ok':(n<0?'bad':'');
@@ -95,12 +101,12 @@
       (json.latest || []).forEach(r=>{
         const c = r.pt>0?'ok':(r.pt<0?'bad':'');
         const li = document.createElement('li');
-        li.innerHTML = `${r.date} ${r.time} <b class="${c}">${fmt(r.pt)}</b>`;
+        li.innerHTML = `${r.date} ${r.time} <b class="${c}">${fmt(r.pt)}</b> <small>${r.note||''}</small>`;
         latestEl.appendChild(li);
       });
     } catch(e){
       console.error(e);
-      statsEl.textContent = '集計の取得に失敗しました。';
+      statsEl.textContent = '集計の取得に失敗しました。コンソールをご確認ください。';
       latestEl.innerHTML = '';
     }
   }
@@ -126,7 +132,13 @@
       const text = await res.text();
       if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0,200)}`);
 
-      const json = JSON.parse(text);
+      let json;
+      try{
+        json = JSON.parse(text);
+      }catch(parseErr){
+        throw new Error('非JSON応答: ' + text.slice(0,200));
+      }
+
       if(!json.ok){
         alert(json.message || json.error || 'チェックインに失敗しました。');
         return;
@@ -146,6 +158,7 @@
 
   checkinBtn.addEventListener('click', sendCheckin);
 
+  // 初期化
   refreshPositionUI();
   setInterval(refreshPositionUI, 30000);
   loadStats();
