@@ -105,7 +105,15 @@
 
       latestEl.innerHTML = '';
       (json.latest || []).forEach(r=>{
-        const c = r.pt>0?'ok':(r.pt<0?'bad':'');
+        let c = '';
+        if(r.pt === -1300){
+          c = 'warn';             // -1300 のとき紫
+        }else if(r.pt > 0){
+          c = 'ok';
+        }else if(r.pt < 0){
+          c = 'bad';
+        }
+      
         const li = document.createElement('li');
         li.innerHTML = `${r.date} ${r.time} <b class="${c}">${fmt(r.pt)}</b>`;
         latestEl.appendChild(li);
