@@ -5,14 +5,47 @@
 <title>研究室チェックイン</title>
 <style>
   body{font-family:system-ui, sans-serif; padding:20px; max-width:540px; margin:auto}
+  h1, h2, h3, h4{text-align:center}
   .card{border:1px solid #ddd; border-radius:16px; padding:16px; margin:16px 0; box-shadow:0 2px 10px rgba(0,0,0,.04)}
   button{font-size:18px; padding:12px 16px; border-radius:12px; border:0; cursor:not-allowed; opacity:.5}
   button.active{background:#2563eb; color:#fff; cursor:pointer; opacity:1}
   .ok{color:#16a34a} 
   .bad{color:#dc2626}
-  .warn {color:#9333ea } 
+  .warn{color:#9333ea}
+  .stay{color:#eab308}
   small{color:#555}
   ul{padding-left:1rem}
+  table{border-collapse:collapse; width:100%; margin-top:8px}
+  th,td{border:1px solid #ddd; padding:8px; text-align:center}
+  th{background-color:#f5f5f5; font-weight:600}
+  tr:nth-child(even){background-color:#f9f9f9}
+  .week-separator{border-top:2px solid #666; background-color:#e5e5e5}
+  .weekday{font-size:1em; color:#333; font-weight:600}
+
+  /* ログの1行 */
+  .log-card{
+    border:1px solid #e5e5e5; border-radius:8px; padding:12px; margin:8px 0;
+    background:#fafafa; display:flex; justify-content:space-between; align-items:center;
+  }
+  .log-date{font-weight:600; color:#333; min-width:160px}
+  .log-time{color:#666; min-width:120px}
+  .log-points{font-weight:bold; font-size:1.1em; min-width:90px; text-align:right}
+
+  .summary-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px}
+  .summary-card{border:1px solid #e5e5e5; border-radius:12px; padding:20px; text-align:center; background:#fafafa}
+  .summary-card h4{margin:0 0 12px 0; font-size:1em; color:#333; font-weight:700; text-transform:uppercase; letter-spacing:0.5px}
+  .summary-card .value{font-size:2em; font-weight:bold; margin:0; line-height:1.2}
+  .summary-card .label{font-size:0.75em; color:#666; margin-top:8px; font-weight:500}
+
+  /* 直近ログのラベル行（見出し） */
+  .log-header{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:0 4px 8px; margin:4px 0 8px; border-bottom:1px solid #e5e5e5; color:#666; font-weight:600;
+  }
+  .log-header div{flex:1; text-align:center}
+  .log-header .log-date{font-weight:600; color:#666}
+  .log-header .log-time{color:#666}
+  .log-header .log-points{font-weight:600; color:#666; text-align:right}
 </style>
 
 <div class="card">
@@ -22,14 +55,15 @@
   <div><small id="debug"></small></div>
   <div style="margin-top:12px">
     <button id="checkin" disabled>到着（チェックイン）</button>
+    <button id="stay" disabled style="margin-left:8px">宿泊</button>
   </div>
 </div>
 
 <div class="card" id="statsCard">
   <h2>サマリー</h2>
-  <div id="stats">読み込み中…</div>
+  <div id="stats"><h4>読み込み中…</h4></div>
   <h3 style="margin-top:12px">直近のログ</h3>
-  <ul id="latest"></ul>
+  <div id="latest"><h4>読み込み中…</h4></div>
 </div>
 
 <script>
@@ -39,6 +73,7 @@
   const statusEl = document.getElementById('status');
   const debugEl  = document.getElementById('debug');
   const checkinBtn = document.getElementById('checkin');
+  const stayBtn = document.getElementById('stay');
   const statsEl  = document.getElementById('stats');
   const latestEl = document.getElementById('latest');
 
@@ -72,6 +107,8 @@
   function enableButton(enable){
     checkinBtn.disabled = !enable;
     checkinBtn.classList.toggle('active', enable);
+    stayBtn.disabled = !enable;
+    stayBtn.classList.toggle('active', enable);
   }
 
   async function loadStats(){
@@ -97,26 +134,97 @@
       const fmt = (n)=> (n>=0?'+':'') + n + 'pt';
 
       statsEl.innerHTML = `
-        本日の合計：<b class="${cls(json.totalToday)}">${fmt(json.totalToday)}</b><br>
-        今週の合計：<b class="${cls(json.totalWeek)}">${fmt(json.totalWeek)}</b><br>
-        今月の合計：<b class="${cls(json.totalMonth)}">${fmt(json.totalMonth)}</b><br>
-        これまでの合計：<b class="${cls(json.totalAll)}">${fmt(json.totalAll)}</b>
+        <div class="summary-grid">
+          <div class="summary-card">
+            <h4>本日</h4>
+            <p class="value ${cls(json.totalToday)}">${fmt(json.totalToday)}</p>
+          </div>
+          <div class="summary-card">
+            <h4>今週</h4>
+            <p class="value ${cls(json.totalWeek)}">${fmt(json.totalWeek)}</p>
+          </div>
+          <div class="summary-card">
+            <h4>今月</h4>
+            <p class="value ${cls(json.totalMonth)}">${fmt(json.totalMonth)}</p>
+          </div>
+          <div class="summary-card">
+            <h4>総合</h4>
+            <p class="value ${cls(json.totalAll)}">${fmt(json.totalAll)}</p>
+          </div>
+        </div>
       `;
 
       latestEl.innerHTML = '';
-      (json.latest || []).forEach(r=>{
+
+      // ▼ 日付＋時間をDateに変換する関数
+      const parseDT = (r)=>{
+        const [y,m,d] = r.date.split('/').map(Number);
+        const [hh,mm,ss] = (r.time || '00:00:00').split(':').map(Number);
+        return new Date(y, m-1, d, hh||0, mm||0, ss||0);
+      };
+
+      // ▼ 降順（新しい順）にソート
+      const latest = [...(json.latest || [])].sort((a,b)=> parseDT(b) - parseDT(a));
+
+      // ラベル行を1回だけ追加
+      if (latest.length > 0) {
+        const header = document.createElement('div');
+        header.className = 'log-header';
+        header.innerHTML = `
+          <div class="log-date">日付</div>
+          <div class="log-time">チェックイン</div>
+          <div class="log-points">ポイント</div>
+        `;
+        latestEl.appendChild(header);
+      }
+
+      let lastWeek = null;
+
+      latest.forEach((r)=>{
         let c = '';
-        if(r.pt === -1300){
-          c = 'warn';             // -1300 のとき紫
-        }else if(r.pt > 0){
-          c = 'ok';
-        }else if(r.pt < 0){
-          c = 'bad';
+        if(r.pt === -1300){ c = 'warn'; }
+        else if(r.pt > 0){ c = 'ok'; }
+        else if(r.pt < 0){ c = 'bad'; }
+
+        // 週の切れ目
+        const [y,mn,dd] = r.date.split('/').map(Number);
+        const date = new Date(y, mn-1, dd);
+        const dayOfWeek = date.getDay(); // 0=日, 1=月, ..., 6=土
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - dayOfWeek);
+        const weekKey = weekStart.toISOString().split('T')[0];
+
+        if(lastWeek !== null && lastWeek !== weekKey){
+          const sep = document.createElement('div');
+          sep.className = 'week-separator';
+          sep.style.height = '2px';
+          sep.style.margin = '12px 0';
+          latestEl.appendChild(sep);
         }
-      
-        const li = document.createElement('li');
-        li.innerHTML = `${r.date} ${r.time} <b class="${c}">${fmt(r.pt)}</b>`;
-        latestEl.appendChild(li);
+        lastWeek = weekKey;
+
+        // 表示文字
+        let timeDisplay = r.time;
+        let isStay = false;
+        if (r.type === 'absence') {
+          timeDisplay = '無断欠席';
+        } else if (r.type === 'stay') {
+          timeDisplay = '　宿泊　';
+          isStay = true;
+        }
+
+        const pointClass = isStay ? 'stay' : c;
+        const weekdays = ['日','月','火','水','木','金','土'];
+        const weekday = weekdays[dayOfWeek];
+
+        const row = document.createElement('div');
+        row.className = 'log-card';
+        row.innerHTML = `
+          <div class="log-date">${r.date} <span class="weekday">（${weekday}）</span></div>
+          <div class="log-time">${timeDisplay}</div>
+          <div class="log-points ${pointClass}">${fmt(r.pt)}</div>
+        `;
+        latestEl.appendChild(row);
       });
     } catch(e){
       console.error(e);
@@ -125,10 +233,13 @@
     }
   }
 
-  async function sendCheckin(){
+
+  async function sendCheckin(isStay = false){
     const originalLabel = checkinBtn.textContent;
+    const stayOriginalLabel = stayBtn.textContent;
     enableButton(false);
     checkinBtn.textContent = '送信中…';
+    stayBtn.textContent = '送信中…';
     try{
       let pos = lastPos && (Date.now()-lastPosAt)<15000
         ? lastPos
@@ -138,10 +249,19 @@
 
       const url = GAS_ENDPOINT + '?ua=' + encodeURIComponent(navigator.userAgent);
 
+      // 宿泊の場合は12:01:00の時刻を計算
+      let timestamp = Date.now();
+      if(isStay) {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const stayTime = new Date(today.getTime() + 20 * 60 * 60 * 1000 + 1 * 60 * 1000); // 12:01:00
+        timestamp = stayTime.getTime();
+      }
+
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ type:'checkin', lat, lng, ts: Date.now() })
+        body: JSON.stringify({ type:'checkin', lat, lng, ts: timestamp })
       });
       const text = await res.text();
       if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0,200)}`);
@@ -165,12 +285,16 @@
       alert('送信エラー：' + (err.message || String(err)));
     }finally{
       checkinBtn.textContent = originalLabel;
+      stayBtn.textContent = stayOriginalLabel;
       enableButton(true);
       refreshPositionUI();
     }
   }
 
+  function sendStay(){ sendCheckin(true); }
+
   checkinBtn.addEventListener('click', sendCheckin);
+  stayBtn.addEventListener('click', sendStay);
 
   // 初期化
   refreshPositionUI();
