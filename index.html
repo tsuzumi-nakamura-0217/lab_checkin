@@ -4,16 +4,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>研究室チェックイン</title>
 <style>
-  body{font-family:system-ui, sans-serif; padding:20px; max-width:540px; margin:auto}
-  h1, h2, h3, h4{text-align:center}
-  .card{border:1px solid #ddd; border-radius:16px; padding:16px; margin:16px 0; box-shadow:0 2px 10px rgba(0,0,0,.04)}
-  button{font-size:18px; padding:12px 16px; border-radius:12px; border:0; cursor:not-allowed; opacity:.5}
+  /* 基本のリセット・可読性 */
+  *{box-sizing:border-box}
+  html,body{margin:0; padding:0}
+  html{overflow-x:hidden}
+  body{
+    font-family:system-ui, -apple-system, Segoe UI, Roboto, "ヒラギノ角ゴ ProN", Meiryo, sans-serif;
+    padding:20px; max-width:540px; margin:auto; line-height:1.6;
+    font-size:clamp(14px, 3.5vw, 16px);
+  }
+  h1, h2, h3, h4{text-align:center; margin:0.3em 0}
+
+  .card{border:1px solid #ddd; border-radius:16px; padding:16px; margin:16px 0; box-shadow:0 2px 10px rgba(0,0,0,.04); background:#fff}
+
+  /* ボタン行：モバイルは縦積み、横幅広がれば横並び */
+  .btn-row{display:flex; gap:8px; flex-direction:column}
+  @media (min-width:480px){
+    .btn-row{flex-direction:row}
+  }
+  button{
+    font-size:1rem; padding:12px 16px; border-radius:12px; border:0;
+    cursor:not-allowed; opacity:.5; width:100%;
+  }
   button.active{background:#2563eb; color:#fff; cursor:pointer; opacity:1}
+
   .ok{color:#16a34a} 
   .bad{color:#dc2626}
   .warn{color:#9333ea}
   .stay{color:#eab308}
-  small{color:#555}
+  small{color:#555; display:block; word-break:break-all}
   ul{padding-left:1rem}
   table{border-collapse:collapse; width:100%; margin-top:8px}
   th,td{border:1px solid #ddd; padding:8px; text-align:center}
@@ -22,30 +41,58 @@
   .week-separator{border-top:2px solid #666; background-color:#e5e5e5}
   .weekday{font-size:1em; color:#333; font-weight:600}
 
-  /* ログの1行 */
-  .log-card{
-    border:1px solid #e5e5e5; border-radius:8px; padding:12px; margin:8px 0;
-    background:#fafafa; display:flex; justify-content:space-between; align-items:center;
+  /* サマリーは1列→2列に切替 */
+  .summary-grid{
+    display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px
   }
-  .log-date{font-weight:600; color:#333; min-width:160px}
-  .log-time{color:#666; min-width:120px}
-  .log-points{font-weight:bold; font-size:1.1em; min-width:90px; text-align:right}
-
-  .summary-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px}
-  .summary-card{border:1px solid #e5e5e5; border-radius:12px; padding:20px; text-align:center; background:#fafafa}
-  .summary-card h4{margin:0 0 12px 0; font-size:1em; color:#333; font-weight:700; text-transform:uppercase; letter-spacing:0.5px}
+  @media (min-width:480px){
+    .summary-grid{grid-template-columns:1fr 1fr}
+  }
+  .summary-card{border:1px solid #e5e5e5; border-radius:12px; padding:16px; text-align:center; background:#fafafa}
+  .summary-card h4{margin:0 0 8px 0; font-size:0.9em; color:#333; font-weight:700; text-transform:uppercase; letter-spacing:0.5px}
   .summary-card .value{font-size:2em; font-weight:bold; margin:0; line-height:1.2}
   .summary-card .label{font-size:0.75em; color:#666; margin-top:8px; font-weight:500}
 
-  /* 直近ログのラベル行（見出し） */
+  /* 直近ログのラベル行（見出し）もグリッドで */
   .log-header{
-    display:flex; justify-content:space-between; align-items:center;
+    display:grid; grid-template-columns:1fr auto; gap:4px 8px;
     padding:0 4px 8px; margin:4px 0 8px; border-bottom:1px solid #e5e5e5; color:#666; font-weight:600;
+    align-items:center;
+    grid-template-areas:
+      "date points"
+      "time points";
   }
-  .log-header div{flex:1; text-align:center}
-  .log-header .log-date{font-weight:600; color:#666}
-  .log-header .log-time{color:#666}
-  .log-header .log-points{font-weight:600; color:#666; text-align:right}
+  @media (min-width:600px){
+    .log-header{
+      grid-template-columns: minmax(0,1fr) 120px 90px;
+      grid-template-areas: "date time points";
+    }
+  }
+  .log-header .log-date{grid-area:date; text-align:left}
+  .log-header .log-time{grid-area:time; text-align:left}
+  .log-header .log-points{grid-area:points; text-align:right}
+
+  /* ログの1行：狭い幅では2列2行、広い幅で3列 */
+  .log-card{
+    border:1px solid #e5e5e5; border-radius:8px; padding:12px; margin:8px 0;
+    background:#fafafa; display:grid; gap:4px 8px; align-items:center;
+    grid-template-columns:1fr auto;
+    grid-template-areas:
+      "date points"
+      "time points";
+  }
+  @media (min-width:600px){
+    .log-card{
+      grid-template-columns: minmax(0,1fr) 120px 90px;
+      grid-template-areas: "date time points";
+    }
+  }
+  .log-date{grid-area:date; font-weight:600; color:#333; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .log-time{grid-area:time; color:#666; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .log-points{grid-area:points; font-weight:bold; font-size:1.1em; text-align:right}
+
+  /* 細かな余白調整（スマホで詰めすぎない） */
+  #latest h4, #stats h4{margin:12px 0}
 </style>
 
 <div class="card">
@@ -53,9 +100,10 @@
   <p>位置情報の許可をお願いします。到着の可否はサーバ側で判定されます。</p>
   <div id="status">現在地を測位中…</div>
   <div><small id="debug"></small></div>
-  <div style="margin-top:12px">
+
+  <div class="btn-row" style="margin-top:12px">
     <button id="checkin" disabled>到着（チェックイン）</button>
-    <button id="stay" disabled style="margin-left:8px">宿泊</button>
+    <button id="stay" disabled>宿泊</button>
   </div>
 </div>
 
@@ -115,7 +163,7 @@
     try {
       const url = GAS_ENDPOINT + '?mode=stats&_=' + Date.now();
       const res = await fetch(url);
-      const text = await res.text(); // まず text で受け取って可視化
+      const text = await res.text();
       if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0,200)}`);
       let json;
       try{
@@ -126,7 +174,7 @@
       if(!json.ok) throw new Error('bad response');
 
       const cls = (n)=> {
-        if(n === -1300) return 'warn'; // -1300
+        if(n === -1300) return 'warn';
         if(n > 0) return 'ok';
         if(n < 0) return 'bad';
         return '';
@@ -156,17 +204,14 @@
 
       latestEl.innerHTML = '';
 
-      // ▼ 日付＋時間をDateに変換する関数
       const parseDT = (r)=>{
         const [y,m,d] = r.date.split('/').map(Number);
         const [hh,mm,ss] = (r.time || '00:00:00').split(':').map(Number);
         return new Date(y, m-1, d, hh||0, mm||0, ss||0);
       };
 
-      // ▼ 降順（新しい順）にソート
       const latest = [...(json.latest || [])].sort((a,b)=> parseDT(b) - parseDT(a));
 
-      // ラベル行を1回だけ追加
       if (latest.length > 0) {
         const header = document.createElement('div');
         header.className = 'log-header';
@@ -186,7 +231,6 @@
         else if(r.pt > 0){ c = 'ok'; }
         else if(r.pt < 0){ c = 'bad'; }
 
-        // 週の切れ目
         const [y,mn,dd] = r.date.split('/').map(Number);
         const date = new Date(y, mn-1, dd);
         const dayOfWeek = date.getDay(); // 0=日, 1=月, ..., 6=土
@@ -203,7 +247,6 @@
         }
         lastWeek = weekKey;
 
-        // 表示文字
         let timeDisplay = r.time;
         let isStay = false;
         if (r.type === 'absence') {
@@ -212,7 +255,6 @@
           timeDisplay = '宿泊';
           isStay = true;
         } else if (r.time) {
-          // r.time がある場合は「HH:MM」までに整形
           const [hh, mm] = r.time.split(':');
           timeDisplay = `${hh}:${mm}`;
         }
@@ -236,7 +278,6 @@
       latestEl.innerHTML = '';
     }
   }
-
 
   async function sendCheckin(isStay = false){
     const originalLabel = checkinBtn.textContent;
