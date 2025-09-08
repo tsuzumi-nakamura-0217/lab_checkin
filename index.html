@@ -143,7 +143,7 @@
       const pos = await getPosition();
       const {latitude, longitude, accuracy} = pos.coords;
       lastPos = pos; lastPosAt = Date.now();
-      statusEl.innerHTML = '<span class="ok">測位に成功しました。チェックインできます。</span>';
+      statusEl.innerHTML = '<span class="ok">測位に成功しました。</span>';
       debugEl.textContent = `lat=${latitude.toFixed(6)}, lng=${longitude.toFixed(6)}, accuracy≈${accuracy}m`;
       enableButton(true);
     }catch(err){
