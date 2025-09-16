@@ -413,7 +413,7 @@
         }
 
         // ポイントの色（宿泊だけは独自色、その他は pt で色分け）
-        const pointClass = isStay ? 'stay' : (r.calcPt > 0 ? 'ok' : (r.calcPt < 0 ? 'bad' : ''));
+        const pointClass = isStay ? 'stay' : (r.calcPt > 0 ? 'ok' : (r.calcPt == -1300 ? 'warn' : 'bad'));
 
         // 事前申請の表示（hh:mm に整形）
         const pre = toHHmm(r.preApplied);
