@@ -32,7 +32,7 @@
   .bad{color:#dc2626}
   .warn{color:#9333ea}
   .stay{color:#eab308}
-  small{color:#555; display:block; word-break:break-all}
+  small{color:#555; display:block; word-break:break-all; font-weight: normal;}
   ul{padding-left:1rem}
   table{border-collapse:collapse; width:100%; margin-top:8px}
   th,td{border:1px solid #ddd; padding:8px; text-align:center}
@@ -93,6 +93,21 @@
 
   /* 細かな余白調整（スマホで詰めすぎない） */
   #latest h4, #stats h4{margin:12px 0}
+  /* 直近ログをスクロール可能にする */
+  #latest{
+    max-height: 500px;   /* 任意の高さ */
+    overflow-y: auto;
+  }
+
+  /* ヘッダを固定 */
+  #latest .log-header{
+    position: sticky;
+    top: 0;
+    background-color: #fff;
+    z-index: 2;  /* 上に重ねる */
+  }
+
+
 </style>
 
 <div class="card">
@@ -113,10 +128,9 @@
   <h3 style="margin-top:12px">直近のログ</h3>
   <div id="latest"><h4>読み込み中…</h4></div>
 </div>
-
 <script>
   // あなたのGASデプロイURLを指定（最新デプロイに更新！）
-  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxOcYUYltXKIn8prlyNKT_Fj5tDGnoY5QLESuZxRXgxVXZsbIChIrBQSzj2AdsBZpOwDQ/exec";
+  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbw4etHFbZ1fqP6t8H4YuEjIYkBo7yjxz2AIyInCCMWweUZ9_h4D9VoOQ_OEIqApePoGag/exec";
 
   const statusEl = document.getElementById('status');
   const debugEl  = document.getElementById('debug');
@@ -128,6 +142,9 @@
   let lastPos = null;
   let lastPosAt = 0;
 
+  // ------------------------------
+  // 位置情報
+  // ------------------------------
   function getPosition(opts={enableHighAccuracy:true, timeout:8000, maximumAge:0}) {
     return new Promise((resolve, reject)=>{
       navigator.geolocation.getCurrentPosition(resolve, reject, opts);
@@ -159,12 +176,127 @@
     stayBtn.classList.toggle('active', enable);
   }
 
+  // ------------------------------
+  // 時刻ユーティリティ
+  // ------------------------------
+  // 文字列から時:分を取り出して "hh:mm" で返す（失敗時は null）
+  function toHHmm(s){
+    if(!s || typeof s !== 'string') return null;
+    s = s.trim();
+
+    const pad = (n)=> String(n).padStart(2, '0');
+
+    // パターン1: "HH:mm" / "H:mm" / 全角コロン
+    let m = s.match(/(\d{1,2})[:：](\d{2})/);
+    if(m){
+      const hh = Math.min(23, parseInt(m[1],10));
+      const mm = Math.min(59, parseInt(m[2],10));
+      return `${pad(hh)}:${pad(mm)}`;
+    }
+
+    // パターン2: 文中の "H:MM" / "HH:MM"
+    m = s.match(/\b(\d{1,2}):(\d{2})\b/);
+    if(m){
+      const hh = Math.min(23, parseInt(m[1],10));
+      const mm = Math.min(59, parseInt(m[2],10));
+      return `${pad(hh)}:${pad(mm)}`;
+    }
+
+    // パターン3: "930" → 09:30, "1234" → 12:34
+    m = s.match(/^\s*(\d{1,2})(\d{2})\s*$/);
+    if(m){
+      const hh = Math.min(23, parseInt(m[1],10));
+      const mm = Math.min(59, parseInt(m[2],10));
+      return `${pad(hh)}:${pad(mm)}`;
+    }
+
+    return null;
+  }
+
+  // "hh:mm" / "h:mm" / "930" を [hh, mm] へ（失敗は null）
+  function parseHHmm(s){
+    if(!s || typeof s !== 'string') return null;
+    s = s.trim();
+    let m = s.match(/(\d{1,2})[:：](\d{2})/);           // 09:30 / 9:30 / 全角:
+    if(!m) m = s.match(/\b(\d{1,2}):(\d{2})\b/);        // 文中末尾など
+    if(!m) m = s.match(/^\s*(\d{1,2})(\d{2})\s*$/);     // 930 → 09:30
+    if(!m) return null;
+    const h  = Math.min(23, parseInt(m[1],10));
+    const mm = Math.min(59, parseInt(m[2],10));
+    return [h, mm];
+  }
+
+  // "yyyy/MM/dd" と (hh,mm) から Date
+  function makeDateFromYmdHm(ymd, hh, mm){
+    const [y,m,d] = ymd.split('/').map(Number);
+    return new Date(y, m-1, d, hh, mm, 0, 0);
+  }
+
+  // 対象曜日（Mon/Tue/Thu/Fri）
+  function isAllowedDay(d){
+    const wd = d.getDay(); // 0..6 (Sun..Sat)
+    return wd === 1 || wd === 2 || wd === 4 || wd === 5;
+  }
+
+  // 週開始（日曜0時）
+  function startOfWeekLocal(d){
+    const t = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0,0,0,0);
+    const wd = t.getDay(); // 0=Sun
+    t.setDate(t.getDate() - wd);
+    return t;
+  }
+
+  // ------------------------------
+  // GAS computePt_ 相当のフロント再計算
+  // - preApplied があればそれをターゲットに、なければ 11:00
+  // - 早着: floor(h)*+100, 遅刻: ceil(h)*-100
+  // - 対象曜日外は 0pt
+  // - absence であっても再計算（表示は「無断欠席」）
+  // ------------------------------
+  function computePtLikeGAS(dateStr, timeStr, preAppliedRaw){
+    // 実測時刻（stats.latest の time は "HH:mm:ss" 前提）
+    const [hh, mm, ss] = (timeStr || '00:00:00').split(':').map(x=>parseInt(x||'0',10));
+    const when = new Date(
+      ...((()=>{ const [y,m,d]=dateStr.split('/').map(Number); return [y, m-1, d, hh||0, mm||0, ss||0, 0]; })())
+    );
+
+    // ターゲット（preApplied 優先、なければ 11:00）
+    let targetH = 11, targetM = 0;
+    const parsed = parseHHmm(preAppliedRaw);
+    if(parsed){ targetH = parsed[0]; targetM = parsed[1]; }
+    const target = makeDateFromYmdHm(dateStr, targetH, targetM);
+
+    let pt = 0, note = '';
+    if(!isAllowedDay(when)){
+      note = '対象外曜日 → 0pt';
+    }else{
+      const diffMs = when - target; // +遅刻 / -早着
+      if(diffMs > 0){
+        const hoursLate = Math.ceil(diffMs / 3600000);
+        pt  = -100 * hoursLate;
+        note = `遅刻 ${hoursLate}時間 → ${pt}pt`;
+      }else if(diffMs < 0){
+        const hoursEarly = Math.floor(Math.abs(diffMs) / 3600000);
+        pt  = 100 * hoursEarly;
+        note = (hoursEarly === 0) ? '早着 <1h → 0pt' : `早着 ${hoursEarly}時間 → +${pt}pt`;
+      }else{
+        note = `${String(targetH).padStart(2,'0')}:${String(targetM).padStart(2,'0')} ちょうど → 0pt`;
+      }
+    }
+    const targetStr = `${dateStr} ${String(targetH).padStart(2,'0')}:${String(targetM).padStart(2,'0')}`;
+    return { pt, note, targetStr };
+  }
+
+  // ------------------------------
+  // Stats の取得＆フロント再計算表示
+  // ------------------------------
   async function loadStats(){
     try {
       const url = GAS_ENDPOINT + '?mode=stats&_=' + Date.now();
       const res = await fetch(url);
       const text = await res.text();
       if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0,200)}`);
+
       let json;
       try{
         json = JSON.parse(text);
@@ -173,44 +305,69 @@
       }
       if(!json.ok) throw new Error('bad response');
 
+      // ----- ここからフロント側でポイントを再計算 -----
+      const recalc = (json.latest || []).map(r=>{
+        const calc = computePtLikeGAS(r.date, r.time, r.preApplied);
+        return { ...r, calcPt: calc.pt, calcNote: calc.note, calcTarget: calc.targetStr };
+      });
+
+      // サマリー集計（本日/今週/今月/総合）
+      const now = new Date();
+      const tzTodayStr = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
+      const weekStart = startOfWeekLocal(now);
+      const weekStartKey = Number(`${weekStart.getFullYear()}${String(weekStart.getMonth()+1).padStart(2,'0')}${String(weekStart.getDate()).padStart(2,'0')}`);
+      const thisMonthKey = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}`;
+
+      let totalToday = 0, totalWeek = 0, totalMonth = 0, totalAll = 0;
+      for(const r of recalc){
+        const ymdKey = Number(r.date.replaceAll('/',''));
+        const ymKey  = r.date.slice(0,7); // "yyyy/MM"
+        totalAll += r.calcPt;
+        if(r.date === tzTodayStr) totalToday += r.calcPt;
+        if(ymdKey >= weekStartKey) totalWeek += r.calcPt;
+        if(ymKey === thisMonthKey) totalMonth += r.calcPt;
+      }
+
+      // 表示ヘルパ
       const cls = (n)=> {
-        if(n === -1300) return 'warn';
         if(n > 0) return 'ok';
         if(n < 0) return 'bad';
         return '';
       };
       const fmt = (n)=> (n>=0?'+':'') + n + 'pt';
 
+      // サマリー（再計算値で描画）
       statsEl.innerHTML = `
         <div class="summary-grid">
           <div class="summary-card">
             <h4>本日</h4>
-            <p class="value ${cls(json.totalToday)}">${fmt(json.totalToday)}</p>
+            <p class="value ${cls(totalToday)}">${fmt(totalToday)}</p>
           </div>
           <div class="summary-card">
             <h4>今週</h4>
-            <p class="value ${cls(json.totalWeek)}">${fmt(json.totalWeek)}</p>
+            <p class="value ${cls(totalWeek)}">${fmt(totalWeek)}</p>
           </div>
           <div class="summary-card">
             <h4>今月</h4>
-            <p class="value ${cls(json.totalMonth)}">${fmt(json.totalMonth)}</p>
+            <p class="value ${cls(totalMonth)}">${fmt(totalMonth)}</p>
           </div>
           <div class="summary-card">
             <h4>総合</h4>
-            <p class="value ${cls(json.totalAll)}">${fmt(json.totalAll)}</p>
+            <p class="value ${cls(totalAll)}">${fmt(totalAll)}</p>
           </div>
         </div>
       `;
 
+      // 直近ログ
       latestEl.innerHTML = '';
 
+      // 並び替え（日時降順）
       const parseDT = (r)=>{
         const [y,m,d] = r.date.split('/').map(Number);
         const [hh,mm,ss] = (r.time || '00:00:00').split(':').map(Number);
         return new Date(y, m-1, d, hh||0, mm||0, ss||0);
       };
-
-      const latest = [...(json.latest || [])].sort((a,b)=> parseDT(b) - parseDT(a));
+      const latest = [...recalc].sort((a,b)=> parseDT(b) - parseDT(a));
 
       if (latest.length > 0) {
         const header = document.createElement('div');
@@ -226,11 +383,6 @@
       let lastWeek = null;
 
       latest.forEach((r)=>{
-        let c = '';
-        if(r.pt === -1300){ c = 'warn'; }
-        else if(r.pt > 0){ c = 'ok'; }
-        else if(r.pt < 0){ c = 'bad'; }
-
         const [y,mn,dd] = r.date.split('/').map(Number);
         const date = new Date(y, mn-1, dd);
         const dayOfWeek = date.getDay(); // 0=日, 1=月, ..., 6=土
@@ -247,10 +399,11 @@
         }
         lastWeek = weekKey;
 
+        // 表示用の時刻文字列
         let timeDisplay = r.time;
         let isStay = false;
         if (r.type === 'absence') {
-          timeDisplay = '無断欠席';
+          timeDisplay = '無断欠席';   // 表示のみ。計算は r.calcPt を使用
         } else if (r.type === 'stay') {
           timeDisplay = '宿泊';
           isStay = true;
@@ -259,16 +412,24 @@
           timeDisplay = `${hh}:${mm}`;
         }
 
-        const pointClass = isStay ? 'stay' : c;
+        // ポイントの色（宿泊だけは独自色、その他は pt で色分け）
+        const pointClass = isStay ? 'stay' : (r.calcPt > 0 ? 'ok' : (r.calcPt < 0 ? 'bad' : ''));
+
+        // 事前申請の表示（hh:mm に整形）
+        const pre = toHHmm(r.preApplied);
+
         const weekdays = ['日','月','火','水','木','金','土'];
         const weekday = weekdays[dayOfWeek];
 
         const row = document.createElement('div');
         row.className = 'log-card';
         row.innerHTML = `
-          <div class="log-date">${r.date} <span class="weekday">（${weekday}）</span></div>
+          <div class="log-date">
+            ${r.date} <span class="weekday">（${weekday}）</span>
+            ${pre ? `<small>事前申請: ${pre}</small>` : ``}
+          </div>
           <div class="log-time">${timeDisplay}</div>
-          <div class="log-points ${pointClass}">${fmt(r.pt)}</div>
+          <div class="log-points ${pointClass}">${fmt(r.calcPt)}</div>
         `;
         latestEl.appendChild(row);
       });
@@ -279,6 +440,9 @@
     }
   }
 
+  // ------------------------------
+  // チェックイン送信
+  // ------------------------------
   async function sendCheckin(isStay = false){
     const originalLabel = checkinBtn.textContent;
     const stayOriginalLabel = stayBtn.textContent;
@@ -347,4 +511,5 @@
   loadStats();
   setInterval(loadStats, 30000);
 </script>
+
 </html>
