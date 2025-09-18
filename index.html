@@ -313,12 +313,14 @@
 
       // サマリー集計（本日/今週/今月/総合）
       const now = new Date();
-      const tzTodayStr = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
+      const pad2 = (n)=> String(n).padStart(2,'0');
+      const tzTodayStr = `${now.getFullYear()}/${pad2(now.getMonth()+1)}/${pad2(now.getDate())}`;
       const weekStart = startOfWeekLocal(now);
-      const weekStartKey = Number(`${weekStart.getFullYear()}${String(weekStart.getMonth()+1).padStart(2,'0')}${String(weekStart.getDate()).padStart(2,'0')}`);
-      const thisMonthKey = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}`;
+      const weekStartKey = Number(`${weekStart.getFullYear()}${pad2(weekStart.getMonth()+1)}${pad2(weekStart.getDate())}`);
+      const thisMonthKey = `${now.getFullYear()}/${pad2(now.getMonth()+1)}`;
 
       let totalToday = 0, totalWeek = 0, totalMonth = 0, totalAll = 0;
+
       for(const r of recalc){
         const ymdKey = Number(r.date.replaceAll('/',''));
         const ymKey  = r.date.slice(0,7); // "yyyy/MM"
@@ -326,6 +328,16 @@
         if(r.date === tzTodayStr) totalToday += r.calcPt;
         if(ymdKey >= weekStartKey) totalWeek += r.calcPt;
         if(ymKey === thisMonthKey) totalMonth += r.calcPt;
+      }
+
+      // ----- 本日の暫定ポイント（本日の記録が無い & 該当曜日のみ）-----
+      let isProvisionalToday = false;
+      const hasTodayRecord = recalc.some(r => r.date === tzTodayStr);
+      if(!hasTodayRecord && isAllowedDay(now)){
+        const hh = pad2(now.getHours()), mm = pad2(now.getMinutes()), ss = pad2(now.getSeconds());
+        const tmp = computePtLikeGAS(tzTodayStr, `${hh}:${mm}:${ss}`, null); // 既定=11:00基準
+        totalToday = tmp.pt;
+        isProvisionalToday = true;
       }
 
       // 表示ヘルパ
@@ -336,12 +348,13 @@
       };
       const fmt = (n)=> (n>=0?'+':'') + n + 'pt';
 
-      // サマリー（再計算値で描画）
+      // サマリー（再計算値で描画）— 本日だけ暫定ラベルを出す場合あり
       statsEl.innerHTML = `
         <div class="summary-grid">
           <div class="summary-card">
             <h4>本日</h4>
             <p class="value ${cls(totalToday)}">${fmt(totalToday)}</p>
+            ${isProvisionalToday ? `<div class="label">暫定（未チェックイン）</div>` : ``}
           </div>
           <div class="summary-card">
             <h4>今週</h4>
@@ -403,7 +416,7 @@
         let timeDisplay = r.time;
         let isStay = false;
         if (r.type === 'absence') {
-          timeDisplay = '無断欠席';   // 表示のみ。計算は r.calcPt を使用
+          timeDisplay = '無断欠席';
         } else if (r.type === 'stay') {
           timeDisplay = '宿泊';
           isStay = true;
