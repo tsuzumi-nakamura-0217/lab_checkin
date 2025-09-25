@@ -117,7 +117,8 @@
   <div><small id="debug"></small></div>
 
   <div class="btn-row" style="margin-top:12px">
-    <button id="checkin" disabled>到着（チェックイン）</button>
+    <button id="checkin" disabled>チェックイン</button>
+    <button id="checkinPre" disabled>チェックイン（事前申請あり）</button>
     <button id="stay" disabled>宿泊</button>
   </div>
 </div>
@@ -130,12 +131,13 @@
 </div>
 <script>
   // あなたのGASデプロイURLを指定（最新デプロイに更新！）
-  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbzZrJoe0HYEGz8uputHtvgWHvxTYZskFdRC-KJ1e9bhgWijwymEQVaWAffbZTum3K5qnw/exec";
+  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbygECaUmSKdHECqT79N--WkrdLT-n5TKg6NlCJn2K4XUhhvMLTkrTATlWkdiimd9nsCzg/exec";
 
   const statusEl = document.getElementById('status');
   const debugEl  = document.getElementById('debug');
   const checkinBtn = document.getElementById('checkin');
   const stayBtn = document.getElementById('stay');
+  const checkinPreBtn = document.getElementById('checkinPre');
   const statsEl  = document.getElementById('stats');
   const latestEl = document.getElementById('latest');
 
@@ -172,6 +174,8 @@
   function enableButton(enable){
     checkinBtn.disabled = !enable;
     checkinBtn.classList.toggle('active', enable);
+    checkinPreBtn.disabled = !enable;
+    checkinPreBtn.classList.toggle('active', enable);
     stayBtn.disabled = !enable;
     stayBtn.classList.toggle('active', enable);
   }
@@ -518,9 +522,69 @@
     }
   }
 
+  async function sendCheckinWithPre(){
+    const input = prompt('事前申請のターゲット時刻を入力してください（例: 12:30　半角）\n※ 時と分のみ。年月日は自動で付与されます。');
+    if (input === null) return;
+
+    const hhmm = toHHmm(String(input));
+    if (!hhmm) {
+      alert('時刻の形式が正しくありません（例: 09:30, 930, 9:05, 12:00）');
+      return;
+    }
+
+    const originalLabel1 = checkinBtn.textContent;
+    const originalLabel2 = checkinPreBtn.textContent;
+    const originalLabel3 = stayBtn.textContent;
+    enableButton(false);
+    checkinBtn.textContent = '送信中…';
+    checkinPreBtn.textContent = '送信中…';
+    stayBtn.textContent = '送信中…';
+
+    try{
+      let pos = lastPos && (Date.now()-lastPosAt)<15000
+        ? lastPos
+        : await getPosition({enableHighAccuracy:true, timeout:8000, maximumAge:0});
+      const {latitude: lat, longitude: lng} = pos.coords;
+
+      const url = GAS_ENDPOINT + '?ua=' + encodeURIComponent(navigator.userAgent);
+      const timestamp = Date.now();
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          type: 'checkin',
+          lat, lng, ts: timestamp,
+          preApplied: hhmm   // ← 事前申請時刻を送る
+        })
+      });
+      const text = await res.text();
+      if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0,200)}`);
+
+      const json = JSON.parse(text);
+      if(!json.ok){
+        alert(json.message || json.error || 'チェックインに失敗しました。');
+        return;
+      }
+      await loadStats();
+      const serverPtNum = Number(json.pt);
+      alert(`チェックイン（事前申請あり）を記録しました。\n今回のポイント: ${(serverPtNum>=0?'+':'')+serverPtNum}pt\nターゲット: ${json.target || '(不明)'}`);
+    }catch(err){
+      console.error(err);
+      alert('送信エラー：' + (err.message || String(err)));
+    }finally{
+      checkinBtn.textContent = originalLabel1;
+      checkinPreBtn.textContent = originalLabel2;
+      stayBtn.textContent = originalLabel3;
+      enableButton(true);
+      refreshPositionUI();
+    }
+  }
+
   function sendStay(){ sendCheckin(true); }
 
   checkinBtn.addEventListener('click', sendCheckin);
+  checkinPreBtn.addEventListener('click', sendCheckinWithPre);
   stayBtn.addEventListener('click', sendStay);
 
   // 初期化
