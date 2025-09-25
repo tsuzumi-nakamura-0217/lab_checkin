@@ -307,6 +307,10 @@
 
       // ----- ここからフロント側でポイントを再計算 -----
       const recalc = (json.latest || []).map(r=>{
+        if (r.type === 'stay') {
+          // 宿泊は再計算せず固定
+          return { ...r, calcPt: -500, calcNote: '宿泊 → 一律 -500pt', calcTarget: '' };
+        }
         const calc = computePtLikeGAS(r.date, r.time, r.preApplied);
         return { ...r, calcPt: calc.pt, calcNote: calc.note, calcTarget: calc.targetStr };
       });
@@ -471,19 +475,16 @@
 
       const url = GAS_ENDPOINT + '?ua=' + encodeURIComponent(navigator.userAgent);
 
-      // 宿泊の場合は12:01:00の時刻を計算
-      let timestamp = Date.now();
-      if(isStay) {
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const stayTime = new Date(today.getTime() + 20 * 60 * 60 * 1000 + 1 * 60 * 1000); // 12:01:00
-        timestamp = stayTime.getTime();
-      }
+      // 宿泊でも押した瞬間の時刻をそのまま使う
+      const timestamp = Date.now();
 
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ type:'checkin', lat, lng, ts: timestamp })
+        body: JSON.stringify({
+          type: isStay ? 'stay' : 'checkin',  // ← 宿泊は 'stay' で送信
+          lat, lng, ts: timestamp
+        })
       });
       const text = await res.text();
       if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0,200)}`);
@@ -500,7 +501,11 @@
         return;
       }
       await loadStats();
-      const amount = Number.isFinite(Number(json.pt)) ? Number(json.pt) : 0;
+      const serverPtNum = Number(json.pt);
+      const amount =
+        Number.isFinite(serverPtNum)
+          ? serverPtNum
+          : (isStay ? -500 : 0); // ← サーバ未設定でも宿泊は -500pt を表示
       alert(`チェックインを記録しました。\n今回のポイント: ${(amount>=0?'+':'')+amount}pt`);
     }catch(err){
       console.error(err);
