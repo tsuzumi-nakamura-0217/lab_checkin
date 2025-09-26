@@ -346,6 +346,10 @@
         const tmp = computePtLikeGAS(tzTodayStr, `${hh}:${mm}:${ss}`, null); // 既定=11:00基準
         totalToday = tmp.pt;
         isProvisionalToday = true;
+        // 暫定ポイントを今週・今月・総合にも加算
+        totalWeek += tmp.pt;
+        totalMonth += tmp.pt;
+        totalAll += tmp.pt;
       }
 
       // 表示ヘルパ
