@@ -13,9 +13,33 @@
     padding:20px; max-width:540px; margin:auto; line-height:1.6;
     font-size:clamp(14px, 3.5vw, 16px);
   }
+  
+  /* パソコン幅でのカラムレイアウト */
+  @media (min-width:1024px){
+    body{
+      max-width:1200px;
+    }
+    .main-container{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:20px;
+      align-items:start;
+    }
+    .left-column{
+      display:flex;
+      flex-direction:column;
+      gap:20px;
+    }
+    .right-column{
+      display:flex;
+      flex-direction:column;
+    }
+  }
   h1, h2, h3, h4{text-align:center; margin:0.3em 0}
 
-  .card{border:1px solid #ddd; border-radius:16px; padding:16px; margin:16px 0; box-shadow:0 2px 10px rgba(0,0,0,.04); background:#fff}
+  .card{border:1px solid #ddd; border-radius:16px; padding:16px; margin:20px 0; box-shadow:0 2px 10px rgba(0,0,0,.04); background:#fff}
+  .card:first-child{margin-top:0}
+  .card:last-child{margin-bottom:0}
 
   /* ボタン行：モバイルは縦積み、横幅広がれば横並び */
   .btn-row{display:flex; gap:8px; flex-direction:column}
@@ -95,7 +119,7 @@
   #latest h4, #stats h4{margin:12px 0}
   /* 直近ログをスクロール可能にする */
   #latest{
-    max-height: 500px;   /* 任意の高さ */
+    max-height: 800px;   /* 任意の高さ */
     overflow-y: auto;
   }
 
@@ -110,28 +134,39 @@
 
 </style>
 
-<div class="card">
-  <h1>研究室チェックイン</h1>
-  <p>位置情報の許可をお願いします。到着の可否はサーバ側で判定されます。</p>
-  <div id="status">現在地を測位中…</div>
-  <div><small id="debug"></small></div>
+<h1>研究室チェックイン</h1>
 
-  <div class="btn-row" style="margin-top:12px">
-    <button id="checkin" disabled>チェックイン</button>
-    <button id="checkinPre" disabled>チェックイン（事前申請）</button>
-    <button id="stay" disabled>宿泊</button>
+<div class="main-container">
+  <div class="left-column">
+    <div class="card">
+      <h2>チェックイン操作</h2>
+      <p>位置情報の許可をお願いします。到着の可否はサーバ側で判定されます。</p>
+      <div id="status">現在地を測位中…</div>
+      <div><small id="debug"></small></div>
+
+      <div class="btn-row" style="margin-top:12px">
+        <button id="checkin" disabled>チェックイン</button>
+        <button id="checkinPre" disabled>チェックイン（事前申請）</button>
+        <button id="stay" disabled>宿泊</button>
+      </div>
+    </div>
+
+    <div class="card" id="statsCard">
+      <h2>ポイントサマリー</h2>
+      <div id="stats"><h4>読み込み中…</h4></div>
+    </div>
   </div>
-</div>
-
-<div class="card" id="statsCard">
-  <h2>サマリー</h2>
-  <div id="stats"><h4>読み込み中…</h4></div>
-  <h3 style="margin-top:12px">直近のログ</h3>
-  <div id="latest"><h4>読み込み中…</h4></div>
+  
+  <div class="right-column">
+    <div class="card" id="logCard">
+      <h2>直近のログ</h2>
+      <div id="latest"><h4>読み込み中…</h4></div>
+    </div>
+  </div>
 </div>
 <script>
   // あなたのGASデプロイURLを指定（最新デプロイに更新！）
-  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyvgoOwW_5_QxTXdKxVmndPlulHtWAT3CXb17xoRoRW9rgSwqh3zlw-04twP6PDmxVvTg/exec";
+  const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxvKbrdO26eD4aK1Y3iB6wyLtuzh6W79sv0v3YZKEsb_A4EIIOGmyDeQn3W6oSXZ2jQ/exec";
 
   const statusEl = document.getElementById('status');
   const debugEl  = document.getElementById('debug');
@@ -314,6 +349,9 @@
         if (r.type === 'stay') {
           // 宿泊は再計算せず固定
           return { ...r, calcPt: -500, calcNote: '宿泊 → 一律 -500pt', calcTarget: '' };
+        } else if (r.type === 'none') {
+          // 対象外曜日は0pt固定
+          return { ...r, calcPt: 0, calcNote: '対象外 → 0pt', calcTarget: '' };
         }
         const calc = computePtLikeGAS(r.date, r.time, r.preApplied);
         return { ...r, calcPt: calc.pt, calcNote: calc.note, calcTarget: calc.targetStr };
@@ -356,6 +394,7 @@
       const cls = (n)=> {
         if(n > 0) return 'ok';
         if(n < 0) return 'bad';
+        if(n === 0) return '';  // 0ptは黒文字（デフォルト色）
         return '';
       };
       const fmt = (n)=> (n>=0?'+':'') + n + 'pt';
@@ -432,13 +471,15 @@
         } else if (r.type === 'stay') {
           timeDisplay = '宿泊';
           isStay = true;
+        } else if (r.type === 'none') {
+          timeDisplay = '対象外';
         } else if (r.time) {
           const [hh, mm] = r.time.split(':');
           timeDisplay = `${hh}:${mm}`;
         }
 
         // ポイントの色（宿泊だけは独自色、その他は pt で色分け）
-        const pointClass = isStay ? 'stay' : (r.calcPt > 0 ? 'ok' : (r.calcPt == -1300 ? 'warn' : 'bad'));
+        const pointClass = isStay ? 'stay' : (r.calcPt > 0 ? 'ok' : (r.calcPt === 0 ? '' : (r.calcPt == -1300 ? 'warn' : 'bad')));
 
         // 事前申請の表示（hh:mm に整形）
         const pre = toHHmm(r.preApplied);
@@ -447,7 +488,7 @@
         const weekday = weekdays[dayOfWeek];
 
         const row = document.createElement('div');
-        row.className = 'log-card';
+        row.className = r.type === 'none' ? 'log-card disabled' : 'log-card';
         row.innerHTML = `
           <div class="log-date">
             ${r.date} <span class="weekday">（${weekday}）</span>
